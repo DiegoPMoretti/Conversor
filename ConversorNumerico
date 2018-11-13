@@ -1,7 +1,7 @@
 REPORT ZGB_CONVERSE.
 
 CLASS LCL_REPORT DEFINITION.
-
+*
   PUBLIC SECTION.
 
     TYPES: BEGIN OF TY_EXIT,
@@ -18,11 +18,15 @@ CLASS LCL_REPORT DEFINITION.
 
 
     DATA: IT_EXIT  TYPE STANDARD TABLE OF TY_EXIT,
-          IT_COUNT TYPE STANDARD TABLE OF TY_COUNT,
+          IT_DADOS TYPE TABLE OF TY_COUNT,
+          IT_COUNT TYPE TABLE OF TY_COUNT,
           WA_EXIT  TYPE TY_EXIT,
+          WA_DADOS TYPE TY_COUNT,
           WA_COUNT TYPE TY_COUNT,
-          V_TYPE TYPE STRING,
-          O_ALV  TYPE REF TO CL_SALV_TABLE.
+          V_TYPE   TYPE STRING,
+          O_ALV    TYPE REF TO CL_SALV_TABLE.
+
+    DATA: V_STRING    TYPE TLINE-TDLINE.
 
     METHODS:
       GET_DATA,
@@ -60,7 +64,7 @@ CLASS LCL_REPORT DEFINITION.
         CHANGING
           CO_ALV TYPE REF TO CL_SALV_TABLE.
 
-
+*
 ENDCLASS.
 
 SELECTION-SCREEN BEGIN OF BLOCK B01 WITH FRAME TITLE TEXT-001.
@@ -84,10 +88,12 @@ CLASS LCL_REPORT IMPLEMENTATION.
 
   METHOD GET_DATA.
 
-    DATA: V_TDLCOUNT   TYPE ITCDP-TDLCOUNT,
-          V_STRING      TYPE TLINE-TDLINE,
-          V_HTYPE TYPE DD01V-DATATYPE,
-          V_COUNT TYPE I.
+    DATA: V_TDLCOUNT  TYPE ITCDP-TDLCOUNT,
+          V_STRING    TYPE TLINE-TDLINE,
+          V_HTYPE     TYPE DD01V-DATATYPE,
+          V_COUNT     TYPE ITCDP-TDLCOUNT,
+          V_NUM       TYPE STRING,
+          V_TDNUMOUTL TYPE ITCDP-TDNUMOUTL.
 
     IF  R1 IS NOT INITIAL.
       V_TYPE = 'Arábico para Romano'.
@@ -107,16 +113,18 @@ CLASS LCL_REPORT IMPLEMENTATION.
       WA_EXIT-TPDATAIN   = 'ARABICO'.
       WA_EXIT-TPDATAOUT  = 'ROMANO'.
 
-      CALL FUNCTION 'CONVERT_NUMBER'
-        EXPORTING
-          TDLCOUNT   = V_TDLCOUNT
-          TDNUMBERIN = 'ROMAN'
-          TDUPPER    = 'X'
-          TDNUMFIXC  = ' '
-          TDNUMOUTL  = 0
-        IMPORTING
-          STRING     = V_STRING.
+      DATA: V_TDUPPER    TYPE ITCDP-TDNUMBERIN,
+            V_TDNUMBERIN TYPE  ITCDP-TDUPPER,
+            V_TDNUMFIXC  TYPE ITCDP-TDNUMFIXC.
 
+      V_TDUPPER = 'X'.
+      V_TDNUMBERIN = 'ROMAN'.
+
+      PERFORM CONVERT_NUMBER USING V_TDLCOUNT V_TDNUMBERIN V_TDUPPER
+                                   V_TDNUMFIXC V_STRING.
+
+      IMPORT CR_WORK TO V_STRING FROM MEMORY ID 'M_DADOS'.
+      FREE MEMORY ID 'M_DADOS'.
 
       WA_EXIT-INPUT     = V_TDLCOUNT .
       WA_EXIT-OUTPUT    = V_STRING  .
@@ -124,30 +132,18 @@ CLASS LCL_REPORT IMPLEMENTATION.
 
     ELSEIF R2 IS NOT INITIAL.
       V_TYPE = 'Romano para Arábico'.
-      V_COUNT = 1.
+      V_TDLCOUNT = 1.
 
       WA_EXIT-TPDATAIN   = 'ROMANO'.
       WA_EXIT-TPDATAOUT  = 'ARABICO'.
+      V_TDUPPER = 'X'.
+      V_TDNUMBERIN = 'ROMAN'.
 
-      DO 9999 TIMES.
-        CALL FUNCTION 'CONVERT_NUMBER'
-          EXPORTING
-            TDLCOUNT   = V_COUNT
-            TDNUMBERIN = 'ROMAN'
-            TDUPPER    = 'X'
-            TDNUMFIXC  = ' '
-            TDNUMOUTL  = 0
-          IMPORTING
-            STRING     = V_STRING.
+      PERFORM CONVERT_NUMBER_R2 USING V_TDLCOUNT V_TDNUMBERIN V_TDUPPER
+                                      V_TDNUMFIXC V_STRING.
 
-        WA_COUNT-VALUE = V_COUNT.
-        WA_COUNT-RMN   = V_STRING.
-        APPEND WA_COUNT TO IT_COUNT.
-
-        V_COUNT = V_COUNT + 1.
-        CLEAR WA_COUNT.
-        CLEAR V_STRING.
-      ENDDO.
+      IMPORT IT_DATA TO IT_COUNT FROM MEMORY ID 'IT_DADOS'.
+      FREE MEMORY ID 'IT_DADOS'.
 
       READ TABLE IT_COUNT INTO WA_COUNT WITH KEY RMN = P_NUM.
       IF SY-SUBRC = 0.
@@ -163,7 +159,7 @@ CLASS LCL_REPORT IMPLEMENTATION.
 
     CLEAR WA_EXIT.
 
-  ENDMETHOD.                    "get_data
+  ENDMETHOD.
 
 
   METHOD GENERATE_OUTPUT.
@@ -207,7 +203,7 @@ CLASS LCL_REPORT IMPLEMENTATION.
 
     O_ALV->DISPLAY( ).
 
-  ENDMETHOD.                    "generate_output
+  ENDMETHOD.
 
   METHOD SET_PF_STATUS.
 
@@ -221,7 +217,7 @@ CLASS LCL_REPORT IMPLEMENTATION.
     REPORT        =  'SALV_DEMO_TABLE_SELECTIONS'
     SET_FUNCTIONS = CO_ALV->C_FUNCTIONS_ALL ).
 
-  ENDMETHOD.                    "set_pf_status
+  ENDMETHOD.
 
   METHOD SET_TOP_OF_PAGE.
 
@@ -272,8 +268,8 @@ CLASS LCL_REPORT IMPLEMENTATION.
     CO_ALV->SET_END_OF_LIST( LO_FOOTER ).
 
     CO_ALV->SET_END_OF_LIST_PRINT( LO_FOOTER ).
-
-  ENDMETHOD.                    "set_end_of_page
+*
+  ENDMETHOD.
 
   METHOD SET_LAYOUT.
 
@@ -351,3 +347,213 @@ CLASS LCL_REPORT IMPLEMENTATION.
 
   ENDMETHOD.
 ENDCLASS.
+
+FORM CONVERT_NUMBER USING CCOUNT
+                          CTYP
+                          CUPPER
+                          CONVCOUNT
+                          CONVLENGTH.
+
+
+  DATA:
+    CN_REST(4)  TYPE P,
+    CN_WORK(21).
+
+  CASE CTYP.
+    WHEN 'R'. PERFORM CN_ROMAN     USING CCOUNT CUPPER  CN_WORK.
+  ENDCASE.
+
+  CONVLENGTH = STRLEN( CN_WORK ).
+  WRITE CN_WORK TO CONVCOUNT(CONVLENGTH).
+
+ENDFORM.
+*
+*
+FORM CN_ROMAN USING COUNT
+                    UPPER
+                    ROMAN.
+
+  DATA:
+    CR_WORK(21),
+    CR_COUNTC(5).
+
+  CHECK COUNT > 0.
+  CHECK COUNT <= 9999.
+
+  WRITE COUNT TO CR_COUNTC NO-SIGN NO-ZERO.
+  TRANSLATE CR_COUNTC USING '. '.
+  CONDENSE CR_COUNTC  NO-GAPS.
+  PACK CR_COUNTC TO CR_COUNTC.
+
+  CASE CR_COUNTC(1).
+    WHEN '1'. CR_WORK(9) = 'm        '.
+    WHEN '2'. CR_WORK(9) = 'mm       '.
+    WHEN '3'. CR_WORK(9) = 'mmm      '.
+    WHEN '4'. CR_WORK(9) = 'mmmm     '.
+    WHEN '5'. CR_WORK(9) = 'mmmmm    '.
+    WHEN '6'. CR_WORK(9) = 'mmmmmm   '.
+    WHEN '7'. CR_WORK(9) = 'mmmmmmm  '.
+    WHEN '8'. CR_WORK(9) = 'mmmmmmmm '.
+    WHEN '9'. CR_WORK(9) = 'mmmmmmmmm'.
+  ENDCASE.
+
+  CASE CR_COUNTC+1(1).
+    WHEN '1'. CR_WORK+9(4) = 'c   '.
+    WHEN '2'. CR_WORK+9(4) = 'cc  '.
+    WHEN '3'. CR_WORK+9(4) = 'ccc '.
+    WHEN '4'. CR_WORK+9(4) = 'cd  '.
+    WHEN '5'. CR_WORK+9(4) = 'd   '.
+    WHEN '6'. CR_WORK+9(4) = 'dc  '.
+    WHEN '7'. CR_WORK+9(4) = 'dcc '.
+    WHEN '8'. CR_WORK+9(4) = 'dccc'.
+    WHEN '9'. CR_WORK+9(4) = 'dm  '.
+  ENDCASE.
+
+  CASE CR_COUNTC+2(1).
+    WHEN '1'. CR_WORK+13(4) = 'x   '.
+    WHEN '2'. CR_WORK+13(4) = 'xx  '.
+    WHEN '3'. CR_WORK+13(4) = 'XXX '.
+    WHEN '4'. CR_WORK+13(4) = 'xl  '.
+    WHEN '5'. CR_WORK+13(4) = 'l   '.
+    WHEN '6'. CR_WORK+13(4) = 'lx  '.
+    WHEN '7'. CR_WORK+13(4) = 'lxx '.
+    WHEN '8'. CR_WORK+13(4) = 'lxxx'.
+    WHEN '9'. CR_WORK+13(4) = 'xc  '.
+  ENDCASE.
+
+  CASE CR_COUNTC+3(1).
+    WHEN '1'. CR_WORK+17(4) = 'i   '.
+    WHEN '2'. CR_WORK+17(4) = 'ii  '.
+    WHEN '3'. CR_WORK+17(4) = 'iii '.
+    WHEN '4'. CR_WORK+17(4) = 'iv  '.
+    WHEN '5'. CR_WORK+17(4) = 'v   '.
+    WHEN '6'. CR_WORK+17(4) = 'vi  '.
+    WHEN '7'. CR_WORK+17(4) = 'vii '.
+    WHEN '8'. CR_WORK+17(4) = 'viii'.
+    WHEN '9'. CR_WORK+17(4) = 'ix  '.
+  ENDCASE.
+
+  CONDENSE CR_WORK NO-GAPS.
+
+  IF UPPER > SPACE.
+    TRANSLATE CR_WORK TO UPPER CASE.
+  ENDIF.
+
+  WRITE CR_WORK(21) TO ROMAN(21).
+
+  EXPORT: CR_WORK TO MEMORY ID 'M_DADOS'.
+
+ENDFORM.
+
+FORM CONVERT_NUMBER_R2 USING CCOUNT
+                             CTYP
+                             CUPPER
+                             CONVCOUNT
+                             CONVLENGTH.
+
+  DATA:
+    CN_REST(4)  TYPE P,
+    CN_WORK(21).
+
+  CASE CTYP.
+    WHEN 'R'. PERFORM CN_ROMAN_R2     USING CCOUNT CUPPER  CN_WORK.
+  ENDCASE.
+
+  CONVLENGTH = STRLEN( CN_WORK ).
+  WRITE CN_WORK TO CONVCOUNT(CONVLENGTH).
+
+ENDFORM.
+
+FORM CN_ROMAN_R2 USING COUNT
+                       UPPER
+                       ROMAN.
+
+  TYPES: BEGIN OF TY_COUNT,
+           VALUE TYPE I,
+           RMN   TYPE STRING,
+         END OF TY_COUNT.
+
+  DATA: WA_DATA TYPE TY_COUNT,
+        IT_DATA TYPE TABLE OF TY_COUNT.
+
+  COUNT = 1.
+  DATA:
+    CR_WORK(21),
+    CR_COUNTC(5).
+
+  DO 9998 TIMES.
+
+    WRITE COUNT TO CR_COUNTC NO-SIGN NO-ZERO.
+    TRANSLATE CR_COUNTC USING '. '.
+    CONDENSE CR_COUNTC  NO-GAPS.
+    PACK CR_COUNTC TO CR_COUNTC.
+
+    CASE CR_COUNTC(1).
+      WHEN '1'. CR_WORK(9) = 'm        '.
+      WHEN '2'. CR_WORK(9) = 'mm       '.
+      WHEN '3'. CR_WORK(9) = 'mmm      '.
+      WHEN '4'. CR_WORK(9) = 'mmmm     '.
+      WHEN '5'. CR_WORK(9) = 'mmmmm    '.
+      WHEN '6'. CR_WORK(9) = 'mmmmmm   '.
+      WHEN '7'. CR_WORK(9) = 'mmmmmmm  '.
+      WHEN '8'. CR_WORK(9) = 'mmmmmmmm '.
+      WHEN '9'. CR_WORK(9) = 'mmmmmmmmm'.
+    ENDCASE.
+
+    CASE CR_COUNTC+1(1).
+      WHEN '1'. CR_WORK+9(4) = 'c   '.
+      WHEN '2'. CR_WORK+9(4) = 'cc  '.
+      WHEN '3'. CR_WORK+9(4) = 'ccc '.
+      WHEN '4'. CR_WORK+9(4) = 'cd  '.
+      WHEN '5'. CR_WORK+9(4) = 'd   '.
+      WHEN '6'. CR_WORK+9(4) = 'dc  '.
+      WHEN '7'. CR_WORK+9(4) = 'dcc '.
+      WHEN '8'. CR_WORK+9(4) = 'dccc'.
+      WHEN '9'. CR_WORK+9(4) = 'dm  '.
+    ENDCASE.
+
+    CASE CR_COUNTC+2(1).
+      WHEN '1'. CR_WORK+13(4) = 'x   '.
+      WHEN '2'. CR_WORK+13(4) = 'xx  '.
+      WHEN '3'. CR_WORK+13(4) = 'XXX '.
+      WHEN '4'. CR_WORK+13(4) = 'xl  '.
+      WHEN '5'. CR_WORK+13(4) = 'l   '.
+      WHEN '6'. CR_WORK+13(4) = 'lx  '.
+      WHEN '7'. CR_WORK+13(4) = 'lxx '.
+      WHEN '8'. CR_WORK+13(4) = 'lxxx'.
+      WHEN '9'. CR_WORK+13(4) = 'xc  '.
+    ENDCASE.
+
+    CASE CR_COUNTC+3(1).
+      WHEN '1'. CR_WORK+17(4) = 'i   '.
+      WHEN '2'. CR_WORK+17(4) = 'ii  '.
+      WHEN '3'. CR_WORK+17(4) = 'iii '.
+      WHEN '4'. CR_WORK+17(4) = 'iv  '.
+      WHEN '5'. CR_WORK+17(4) = 'v   '.
+      WHEN '6'. CR_WORK+17(4) = 'vi  '.
+      WHEN '7'. CR_WORK+17(4) = 'vii '.
+      WHEN '8'. CR_WORK+17(4) = 'viii'.
+      WHEN '9'. CR_WORK+17(4) = 'ix  '.
+    ENDCASE.
+
+    CONDENSE CR_WORK NO-GAPS.
+
+    IF UPPER > SPACE.
+      TRANSLATE CR_WORK TO UPPER CASE.
+    ENDIF.
+
+    WRITE CR_WORK(21) TO ROMAN(21).
+
+    WA_DATA-VALUE = COUNT.
+    WA_DATA-RMN   = ROMAN.
+    APPEND WA_DATA TO IT_DATA.
+
+    COUNT = COUNT + 1.
+    CLEAR WA_DATA.
+    CLEAR CR_WORK.
+    CLEAR ROMAN.
+  ENDDO.
+
+  EXPORT: IT_DATA TO MEMORY ID 'IT_DADOS'.
+
+ENDFORM.
